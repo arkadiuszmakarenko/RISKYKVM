@@ -413,10 +413,10 @@ flash: build/RISKYKVMRelease.bin
 		echo "Combined binary not found. Building..."; \
 		$(MAKE) all-release; \
 	fi
-	@if [ -f "$(MRS_TOOLCHAIN_ROOT)/OpenOCD/OpenOCD/bin/openocd" ]; then \
+	@if [ -f "$(MRS_TOOLCHAIN_ROOT)/OpenOCD/bin/openocd" ]; then \
 		echo "Using MRS OpenOCD with sudo (required for USB access)..."; \
-		sudo $(shell pwd)/$(MRS_TOOLCHAIN_ROOT)/OpenOCD/OpenOCD/bin/openocd \
-			-f $(shell pwd)/$(MRS_TOOLCHAIN_ROOT)/OpenOCD/OpenOCD/bin/wch-riscv.cfg \
+		sudo $(MRS_TOOLCHAIN_ROOT)/OpenOCD/bin/openocd \
+			-f $(MRS_TOOLCHAIN_ROOT)/OpenOCD/bin/wch-riscv.cfg \
 			-c "program $(shell pwd)/$< verify reset exit 0x00000000"; \
 	else \
 		echo "MRS OpenOCD not found. Please configure your programming tool."; \
@@ -430,10 +430,10 @@ flash-bootloader: build/Bootloader/Release/Bootloader.bin
 		echo "Bootloader binary not found. Building..."; \
 		$(MAKE) build-single PROJECT=Bootloader BUILD_TYPE=Release; \
 	fi
-	@if [ -f "$(MRS_TOOLCHAIN_ROOT)/OpenOCD/OpenOCD/bin/openocd" ]; then \
+	@if [ -f "$(MRS_TOOLCHAIN_ROOT)/OpenOCD/bin/openocd" ]; then \
 		echo "Using MRS OpenOCD with sudo (required for USB access)..."; \
-		sudo $(shell pwd)/$(MRS_TOOLCHAIN_ROOT)/OpenOCD/OpenOCD/bin/openocd \
-			-f $(shell pwd)/$(MRS_TOOLCHAIN_ROOT)/OpenOCD/OpenOCD/bin/wch-riscv.cfg \
+		sudo $(MRS_TOOLCHAIN_ROOT)/OpenOCD/bin/openocd \
+			-f $(MRS_TOOLCHAIN_ROOT)/OpenOCD/bin/wch-riscv.cfg \
 			-c "program $(shell pwd)/$< verify reset exit 0x00000000"; \
 	else \
 		echo "MRS OpenOCD not found. Please configure your programming tool."; \
