@@ -1,7 +1,32 @@
 firmware/obj/*
 firmware/bin/*
+firmware/build/*
 board/RISKYKVM-backups/*
 firmware/RISKYKVM/obj/*
 firmware/Bootloader/obj/*
 firmware/RISKYKVMBootloader/obj/*
 bin/*
+
+# IDE and Editor files
+.vscode/
+.settings/
+.cproject
+.project
+.classpath
+*.swp
+*.swo
+*~
+.DS_Store
+.idea/
+*.iml
+*.sublime-workspace
+*.sublime-project
+
+# Eclipse/CDT specific
+.metadata/
+RemoteSystemsTempFiles/
+.cdt-indexes/
+
+# WCH IDE (MounRiver Studio) artifacts
+.mrs/
+.template

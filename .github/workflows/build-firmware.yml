@@ -1,0 +1,179 @@
+name: Build Firmware
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    
+    permissions:
+      contents: read
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+    
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          build-essential \
+          make \
+          wget \
+          xz-utils \
+          tar
+    
+    - name: Download WCH RISC-V toolchain
+      run: |
+        echo "Downloading WCH RISC-V toolchain V2.10..."
+        # Download from the WCHToolchain repository
+        wget -q --show-progress \
+          https://github.com/arkadiuszmakarenko/WCHToolchain/releases/download/ToolchainV210/MRS_Toolchain_Linux_x64_V210.tar.xz \
+          -O /tmp/toolchain.tar.xz
+        
+        echo "Extracting toolchain to /opt/riscv-toolchain..."
+        sudo mkdir -p /opt/riscv-toolchain
+        sudo tar -xf /tmp/toolchain.tar.xz -C /opt/riscv-toolchain
+        rm /tmp/toolchain.tar.xz
+        
+        echo "Toolchain installation complete."
+    
+    - name: Verify toolchain installation
+      run: |
+        echo "Checking toolchain installation..."
+        TOOLCHAIN_PATH="/opt/riscv-toolchain/RISC-V Embedded GCC12/bin"
+        
+        if [ ! -d "$TOOLCHAIN_PATH" ]; then
+          echo "ERROR: Toolchain directory not found at: $TOOLCHAIN_PATH"
+          echo "Available directories in /opt/riscv-toolchain:"
+          ls -la /opt/riscv-toolchain/
+          exit 1
+        fi
+        
+        if [ ! -f "$TOOLCHAIN_PATH/riscv-wch-elf-gcc" ]; then
+          echo "ERROR: Compiler not found at: $TOOLCHAIN_PATH/riscv-wch-elf-gcc"
+          echo "Available files in toolchain bin directory:"
+          ls -la "$TOOLCHAIN_PATH/"
+          exit 1
+        fi
+        
+        echo "✓ Toolchain directory exists"
+        echo "✓ Compiler found: $TOOLCHAIN_PATH/riscv-wch-elf-gcc"
+        
+        # Check compiler version
+        "$TOOLCHAIN_PATH/riscv-wch-elf-gcc" --version || {
+          echo "ERROR: Compiler execution failed"
+          exit 1
+        }
+        
+        echo "✓ Toolchain verification complete"
+    
+    - name: Create firmwares
+      working-directory: firmware
+      run: |
+        echo "Building all firmware variants..."
+        make MRS_TOOLCHAIN_ROOT=/opt/riscv-toolchain
+        
+        echo "Creating combined release binary (RISKYKVMRelease.bin)..."
+        # Verify combined binary
+        if [ ! -f "build/RISKYKVMRelease.bin" ]; then
+          echo "ERROR: RISKYKVMRelease.bin not created"
+          exit 1
+        fi
+        
+        if [ ! -f "build/RISKYKVM.UPD" ]; then
+          echo "ERROR: RISKYKVM.UPD not created"
+          exit 1
+        fi
+        
+        echo "✓ Combined release binary created"
+    
+    - name: Verify build artifacts
+      working-directory: firmware
+      run: |
+        echo "Verifying individual firmware builds..."
+        
+        # Check Bootloader
+        if [ ! -f "build/Bootloader/Release/Bootloader.bin" ]; then
+          echo "ERROR: Bootloader.bin not found"
+          exit 1
+        fi
+        echo "✓ Bootloader.bin found"
+        
+        # Check RISKYKVM
+        if [ ! -f "build/RISKYKVM/Release/RISKYKVM.bin" ]; then
+          echo "ERROR: RISKYKVM.bin not found"
+          exit 1
+        fi
+        echo "✓ RISKYKVM.bin found"
+        
+        # Check RISKYKVMBootloader
+        if [ ! -f "build/RISKYKVMBootloader/Release/RISKYKVMBootloader.bin" ]; then
+          echo "ERROR: RISKYKVMBootloader.bin not found"
+          exit 1
+        fi
+        echo "✓ RISKYKVMBootloader.bin found"
+        
+        # Check combined binary
+        if [ ! -f "build/RISKYKVMRelease.bin" ]; then
+          echo "ERROR: RISKYKVMRelease.bin not found"
+          exit 1
+        fi
+        echo "✓ RISKYKVMRelease.bin found"
+        
+        # Check UPD file
+        if [ ! -f "build/RISKYKVM.UPD" ]; then
+          echo "ERROR: RISKYKVM.UPD not found"
+          exit 1
+        fi
+        echo "✓ RISKYKVM.UPD found"
+        
+        echo ""
+        echo "Checking binary sizes..."
+        size_bootloader=$(stat -f%z "build/Bootloader/Release/Bootloader.bin" 2>/dev/null || stat -c%s "build/Bootloader/Release/Bootloader.bin")
+        size_app=$(stat -f%z "build/RISKYKVMBootloader/Release/RISKYKVMBootloader.bin" 2>/dev/null || stat -c%s "build/RISKYKVMBootloader/Release/RISKYKVMBootloader.bin")
+        size_combined=$(stat -f%z "build/RISKYKVMRelease.bin" 2>/dev/null || stat -c%s "build/RISKYKVMRelease.bin")
+        
+        echo "Bootloader size: $size_bootloader bytes (max 32768 bytes)"
+        echo "RISKYKVMBootloader size: $size_app bytes (max 32768 bytes)"
+        echo "Combined size: $size_combined bytes (expected 65536 bytes)"
+        
+        if [ "$size_bootloader" -gt 32768 ]; then
+          echo "ERROR: Bootloader exceeds 32KB limit"
+          exit 1
+        fi
+        
+        if [ "$size_app" -gt 32768 ]; then
+          echo "ERROR: RISKYKVMBootloader exceeds 32KB limit"
+          exit 1
+        fi
+        
+        if [ "$size_combined" -ne 65536 ]; then
+          echo "ERROR: Combined binary is not 64KB (expected 65536, got $size_combined)"
+          exit 1
+        fi
+        
+        echo "✓ All size checks passed"
+    
+    - name: List build artifacts
+      working-directory: firmware
+      run: |
+        echo "Build artifacts summary:"
+        echo "========================"
+        find build -type f \( -name "*.bin" -o -name "*.hex" -o -name "*.elf" -o -name "*.UPD" \) -exec ls -lh {} \;
+    
+    - name: Upload combined release binary
+      uses: actions/upload-artifact@v4
+      with:
+        name: RISKYKVMRelease
+        path: |
+          firmware/build/*.bin
+          firmware/build/*.hex
+          firmware/build/*.elf
+          firmware/build/*.UPD
+        retention-days: 90
