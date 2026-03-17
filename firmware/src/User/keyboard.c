@@ -365,14 +365,14 @@ static const uint8_t scancodeamiga[KEYCODE_TAB_SIZE][2] =
 	{KEY_APPLICATION,            0x5F }, // APP - HELP
 	{KEY_KEYPAD_DECIMAL_SEPARATOR_DELETE, 0x3C }, // KEYPAD '.'
 	{KEY_KEYPAD_NUM_LOCK_AND_CLEAR, 0x68 }, // NUMLOCK & CLEAR
-	{KEY_PRINTSCREEN,            0x0E }, // SPARE
+	{KEY_PRINTSCREEN,            0x0D }, // '\\' (next to Erase)
 	{KEY_SCROLL_LOCK,            0x1C }, // SPARE
 	{KEY_PAUSE,                  0x2C }, // SPARE
 	//{KEY_HOME,                   0x3B }, // SPARE
 	{KEY_PAGEUP,                 0x3F }, // PGUP
 	{KEY_PAGEDOWN,               0x1F }, // PGDOWN
 	//{KEY_END1,                   0x49 }, // SPARE
-	{KEY_INSERT,                 0x4B }, // SPARE
+	{KEY_INSERT,                 0x5F }, // HELP
 	{KEY_NONE,                   0x5B }, // SPARE
 	{KEY_NONE,                   0x6A }, // SPARE
 	{KEY_NONE,                   0x6B }, // SPARE
