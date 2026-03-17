@@ -169,21 +169,21 @@ jobs:
       run: |
         echo "Build artifacts summary:"
         echo "========================"
-        find build -type f \( -name "*.bin" -o -name "*.hex" -o -name "*.elf" -o -name "*.UPD" \) -exec ls -lh {} \;
+        find build -type f \( -name "*.bin" -o -name "*.UPD" \) -exec ls -lh {} \;
     
     - name: Upload combined release binary
       uses: actions/upload-artifact@v4.4.0
       with:
         name: RISKYKVMRelease
         path: |
-          firmware/build/*.bin
-          firmware/build/*.hex
-          firmware/build/*.elf
-          firmware/build/*.UPD
+          firmware/build/RISKYKVMRelease.bin
+          firmware/build/RISKYKVM.UPD
+        if-no-files-found: error
         retention-days: 90
 
     - name: Create or update GitHub Release assets
       if: github.event_name != 'pull_request'
+      shell: bash
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
@@ -198,7 +198,18 @@ jobs:
           TITLE="Latest build ($(date -u '+%Y-%m-%d %H:%M UTC'))"
         fi
 
-        FILES=(firmware/build/*.bin firmware/build/*.hex firmware/build/*.elf firmware/build/*.UPD)
+        FILES=()
+        while IFS= read -r -d '' file; do
+          FILES+=("$file")
+        done < <(find firmware/build -maxdepth 1 -type f \( -name "*.bin" -o -name "*.UPD" \) -print0 | sort -z)
+
+        if [ ${#FILES[@]} -eq 0 ]; then
+          echo "ERROR: No release assets found in firmware/build"
+          exit 1
+        fi
+
+        echo "Release assets:"
+        printf ' - %s\n' "${FILES[@]}"
 
         if gh release view "$TAG" >/dev/null 2>&1; then
           echo "Release $TAG already exists. Updating assets..."
