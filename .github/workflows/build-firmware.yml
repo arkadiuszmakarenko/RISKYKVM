@@ -3,6 +3,8 @@ name: Build Firmware
 on:
   push:
     branches: [ main ]
+    tags:
+      - 'v*'
   pull_request:
     branches: [ main ]
   workflow_dispatch:
@@ -12,7 +14,7 @@ jobs:
     runs-on: ubuntu-22.04
     
     permissions:
-      contents: read
+      contents: write
     
     steps:
     - name: Checkout repository
@@ -177,3 +179,21 @@ jobs:
           firmware/build/*.elf
           firmware/build/*.UPD
         retention-days: 90
+
+    - name: Create or update GitHub Release assets
+      if: startsWith(github.ref, 'refs/tags/')
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        TAG="${GITHUB_REF_NAME}"
+        FILES=(firmware/build/*.bin firmware/build/*.hex firmware/build/*.elf firmware/build/*.UPD)
+
+        if gh release view "$TAG" >/dev/null 2>&1; then
+          echo "Release $TAG already exists. Uploading/overwriting assets..."
+          gh release upload "$TAG" "${FILES[@]}" --clobber
+        else
+          echo "Creating release $TAG with firmware assets..."
+          gh release create "$TAG" "${FILES[@]}" \
+            --title "$TAG" \
+            --generate-notes
+        fi
