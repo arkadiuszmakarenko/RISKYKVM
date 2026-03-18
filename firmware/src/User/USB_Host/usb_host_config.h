@@ -91,6 +91,7 @@ extern "C" {
 #define DEF_REP_DESCR_GETFAIL       0x48
 #define DEF_CFG_VALUE_SETFAIL       0x49
 #define DEF_DEV_TYPE_UNKNOWN        0xFF
+#define DEF_DEV_TYPE_XBOX360        0xF0
                        
 /* USB Communication Time */
 #define DEF_BUS_RESET_TIME          11          // USB bus reset time

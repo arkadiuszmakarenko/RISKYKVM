@@ -16,6 +16,12 @@
 #include "usb_host_config.h"
 #include "gpio.h"
 
+#define DEF_XBOX360_VID                 0x045E
+#define DEF_XBOX360_PID                 0x028E
+#define DEF_XBOX360_ITF_CLASS           0xFF
+#define DEF_XBOX360_ITF_SUBCLASS        0x5D
+#define DEF_XBOX360_ITF_PROTOCOL        0x01
+
 /*******************************************************************************/
 /* Variable Definition */
 uint8_t  DevDesc_Buf[ 18 ];                                                     // Device Descriptor Buffer
@@ -87,11 +93,11 @@ void TIM3_IRQHandler( void )
         /* Clear interrupt flag */
         TIM_ClearITPendingBit( TIM3, TIM_IT_Update );
 
-        /* USB HID Device Input Endpoint Timing */
+        /* USB HID/Xbox Device Input Endpoint Timing */
         if( RootHubDev.bStatus >= ROOT_DEV_SUCCESS )
         {
             index = RootHubDev.DeviceIndex;
-            if( RootHubDev.bType == USB_DEV_CLASS_HID )
+            if( ( RootHubDev.bType == USB_DEV_CLASS_HID ) || ( RootHubDev.bType == DEF_DEV_TYPE_XBOX360 ) )
             {
                 for( intf_num = 0; intf_num < HostCtl[ index ].InterfaceNum; intf_num++ )
                 {
@@ -110,7 +116,7 @@ void TIM3_IRQHandler( void )
                     {
                         index = RootHubDev.Device[ hub_port ].DeviceIndex;
 
-                        if( RootHubDev.Device[ hub_port ].bType == USB_DEV_CLASS_HID )
+                        if( ( RootHubDev.Device[ hub_port ].bType == USB_DEV_CLASS_HID ) || ( RootHubDev.Device[ hub_port ].bType == DEF_DEV_TYPE_XBOX360 ) )
                         {
                             for( intf_num = 0; intf_num < HostCtl[ index ].InterfaceNum; intf_num++ )
                             {
@@ -141,8 +147,43 @@ void TIM3_IRQHandler( void )
 void USBH_AnalyseType( uint8_t *pdev_buf, uint8_t *pcfg_buf, uint8_t *ptype )
 {
     uint8_t  dv_cls, if_cls;
+    uint16_t cfg_len;
+    uint16_t i;
+    uint8_t  has_xbox_itf;
+    PUSB_DEV_DESCR pdev;
 
-    dv_cls = ( (PUSB_DEV_DESCR)pdev_buf )->bDeviceClass;
+    pdev = (PUSB_DEV_DESCR)pdev_buf;
+    cfg_len = (uint16_t)pcfg_buf[ 2 ] | ( (uint16_t)pcfg_buf[ 3 ] << 8 );
+    has_xbox_itf = 0;
+
+    for( i = 0; ( i + 1 ) < cfg_len; )
+    {
+        if( ( pcfg_buf[ i ] == 0 ) || ( i + pcfg_buf[ i ] > cfg_len ) )
+        {
+            break;
+        }
+
+        if( pcfg_buf[ i + 1 ] == DEF_DECR_INTERFACE )
+        {
+            if( ( (PUSB_ITF_DESCR)( &pcfg_buf[ i ] ) )->bInterfaceClass == DEF_XBOX360_ITF_CLASS &&
+                ( (PUSB_ITF_DESCR)( &pcfg_buf[ i ] ) )->bInterfaceSubClass == DEF_XBOX360_ITF_SUBCLASS &&
+                ( (PUSB_ITF_DESCR)( &pcfg_buf[ i ] ) )->bInterfaceProtocol == DEF_XBOX360_ITF_PROTOCOL )
+            {
+                has_xbox_itf = 1;
+                break;
+            }
+        }
+
+        i += pcfg_buf[ i ];
+    }
+
+    if( has_xbox_itf || ( ( pdev->idVendor == DEF_XBOX360_VID ) && ( pdev->idProduct == DEF_XBOX360_PID ) ) )
+    {
+        *ptype = DEF_DEV_TYPE_XBOX360;
+        return;
+    }
+
+    dv_cls = pdev->bDeviceClass;
     if_cls = ( (PUSB_CFG_DESCR_LONG)pcfg_buf )->itf_descr.bInterfaceClass;
     if( ( dv_cls == USB_DEV_CLASS_STORAGE ) || ( if_cls == USB_DEV_CLASS_STORAGE ) )
     {
@@ -812,6 +853,179 @@ uint8_t USBH_EnumHidDevice( uint8_t index, uint8_t ep0_size )
         {
             HostCtl[ index ].Interface[ intf_num ].SetReport_Value = 0x00;
             KB_SetReport( index, ep0_size, intf_num );
+        }
+    }
+
+    return ERR_SUCCESS;
+}
+
+/*********************************************************************
+ * @fn      XBOX360_AnalyzeConfigDesc
+ *
+ * @brief   Analyze Xbox 360 wired controller configuration descriptor.
+ *
+ * @para    index: USB host port
+ *
+ * @return  The result of the analysis.
+ */
+uint8_t XBOX360_AnalyzeConfigDesc( uint8_t index )
+{
+    uint8_t  s = ERR_USB_UNSUPPORT;
+    uint16_t cfg_len;
+    uint16_t i;
+    uint8_t  num;
+
+    cfg_len = (uint16_t)Com_Buf[ 2 ] | ( (uint16_t)Com_Buf[ 3 ] << 8 );
+    num = 0;
+
+    for( i = 0; i < cfg_len; )
+    {
+        if( ( Com_Buf[ i ] == 0 ) || ( i + Com_Buf[ i ] > cfg_len ) )
+        {
+            break;
+        }
+
+        if( Com_Buf[ i + 1 ] == DEF_DECR_CONFIG )
+        {
+            if( ( (PUSB_CFG_DESCR)( &Com_Buf[ i ] ) )->bNumInterfaces > DEF_INTERFACE_NUM_MAX )
+            {
+                HostCtl[ index ].InterfaceNum = DEF_INTERFACE_NUM_MAX;
+            }
+            else
+            {
+                HostCtl[ index ].InterfaceNum = ( (PUSB_CFG_DESCR)( &Com_Buf[ i ] ) )->bNumInterfaces;
+            }
+            i += Com_Buf[ i ];
+        }
+        else if( Com_Buf[ i + 1 ] == DEF_DECR_INTERFACE )
+        {
+            uint8_t innum = 0;
+            uint8_t outnum = 0;
+
+            if( num >= DEF_INTERFACE_NUM_MAX )
+            {
+                break;
+            }
+
+            if( ( (PUSB_ITF_DESCR)( &Com_Buf[ i ] ) )->bInterfaceClass == DEF_XBOX360_ITF_CLASS &&
+                ( (PUSB_ITF_DESCR)( &Com_Buf[ i ] ) )->bInterfaceSubClass == DEF_XBOX360_ITF_SUBCLASS &&
+                ( (PUSB_ITF_DESCR)( &Com_Buf[ i ] ) )->bInterfaceProtocol == DEF_XBOX360_ITF_PROTOCOL )
+            {
+                HostCtl[ index ].Interface[ num ].Type = DEC_XBOX360;
+                HostCtl[ index ].Interface[ num ].HIDRptDesc.type = REPORT_TYPE_JOYSTICK;
+                i += Com_Buf[ i ];
+
+                while( i < cfg_len )
+                {
+                    if( ( Com_Buf[ i ] == 0 ) || ( i + Com_Buf[ i ] > cfg_len ) )
+                    {
+                        break;
+                    }
+
+                    if( Com_Buf[ i + 1 ] == DEF_DECR_INTERFACE )
+                    {
+                        break;
+                    }
+
+                    if( Com_Buf[ i + 1 ] == DEF_DECR_ENDPOINT )
+                    {
+                        if( ( ( (PUSB_ENDP_DESCR)( &Com_Buf[ i ] ) )->bmAttributes & 0x03 ) == 0x03 )
+                        {
+                            if( ( (PUSB_ENDP_DESCR)( &Com_Buf[ i ] ) )->bEndpointAddress & 0x80 )
+                            {
+                                if( innum < 4 )
+                                {
+                                    HostCtl[ index ].Interface[ num ].InEndpAddr[ innum ] = ( (PUSB_ENDP_DESCR)( &Com_Buf[ i ] ) )->bEndpointAddress & 0x0F;
+                                    HostCtl[ index ].Interface[ num ].InEndpType[ innum ] = ( (PUSB_ENDP_DESCR)( &Com_Buf[ i ] ) )->bmAttributes;
+                                    HostCtl[ index ].Interface[ num ].InEndpSize[ innum ] = ( (PUSB_ENDP_DESCR)( &Com_Buf[ i ] ) )->wMaxPacketSizeL +
+                                                                                          (uint16_t)( ( ( (PUSB_ENDP_DESCR)( &Com_Buf[ i ] ) )->wMaxPacketSizeH ) << 8 );
+                                    HostCtl[ index ].Interface[ num ].InEndpInterval[ innum ] = ( (PUSB_ENDP_DESCR)( &Com_Buf[ i ] ) )->bInterval;
+                                    HostCtl[ index ].Interface[ num ].InEndpNum++;
+                                    innum++;
+                                }
+                            }
+                            else
+                            {
+                                if( outnum < 4 )
+                                {
+                                    HostCtl[ index ].Interface[ num ].OutEndpAddr[ outnum ] = ( (PUSB_ENDP_DESCR)( &Com_Buf[ i ] ) )->bEndpointAddress & 0x0F;
+                                    HostCtl[ index ].Interface[ num ].OutEndpType[ outnum ] = ( (PUSB_ENDP_DESCR)( &Com_Buf[ i ] ) )->bmAttributes;
+                                    HostCtl[ index ].Interface[ num ].OutEndpSize[ outnum ] = ( (PUSB_ENDP_DESCR)( &Com_Buf[ i ] ) )->wMaxPacketSizeL +
+                                                                                            (uint16_t)( ( ( (PUSB_ENDP_DESCR)( &Com_Buf[ i ] ) )->wMaxPacketSizeH ) << 8 );
+                                    HostCtl[ index ].Interface[ num ].OutEndpNum++;
+                                    outnum++;
+                                }
+                            }
+                        }
+                    }
+
+                    i += Com_Buf[ i ];
+                }
+
+                if( HostCtl[ index ].Interface[ num ].InEndpNum > 0 )
+                {
+                    FifoInit( &HostCtl[ index ].Interface[ num ].buffer );
+                    HostCtl[ index ].Interface[ num ].HidRptLen = 0;
+                    s = ERR_SUCCESS;
+                }
+            }
+            else
+            {
+                HostCtl[ index ].Interface[ num ].Type = DEC_UNKNOW;
+                i += Com_Buf[ i ];
+            }
+
+            num++;
+        }
+        else
+        {
+            i += Com_Buf[ i ];
+        }
+    }
+
+    return s;
+}
+
+/*********************************************************************
+ * @fn      USBH_EnumXbox360Device
+ *
+ * @brief   Enumerate Xbox 360 wired controller.
+ *
+ * @para    index: USB host port
+ *
+ * @return  The result of the enumeration.
+ */
+uint8_t USBH_EnumXbox360Device( uint8_t index, uint8_t ep0_size )
+{
+    uint8_t  s;
+    uint8_t  intf_num;
+    uint8_t  led_init[ 3 ] = { 0x01, 0x03, 0x06 };
+
+    DUG_PRINTF( "Enum Xbox360:\r\n" );
+
+    DUG_PRINTF( "Analyze CfgDesc: " );
+    s = XBOX360_AnalyzeConfigDesc( index );
+    if( s == ERR_SUCCESS )
+    {
+        DUG_PRINTF( "OK\r\n" );
+    }
+    else
+    {
+        DUG_PRINTF( "Err(%02x)\r\n", s );
+        return s;
+    }
+
+    for( intf_num = 0; intf_num < HostCtl[ index ].InterfaceNum; intf_num++ )
+    {
+        if( ( HostCtl[ index ].Interface[ intf_num ].Type == DEC_XBOX360 ) &&
+            ( HostCtl[ index ].Interface[ intf_num ].OutEndpNum > 0 ) )
+        {
+            s = USBFSH_SendEndpData( HostCtl[ index ].Interface[ intf_num ].OutEndpAddr[ 0 ],
+                                     &HostCtl[ index ].Interface[ intf_num ].OutEndpTog[ 0 ], led_init, sizeof( led_init ) );
+            if( s != ERR_SUCCESS )
+            {
+                DUG_PRINTF( "Xbox LED Init Err(%02x)\r\n", s );
+            }
         }
     }
 
@@ -1494,11 +1708,19 @@ void USBH_MainDeal( void )
         s = USBH_EnumRootDevice( ); // Simply enumerate root device
         if( s == ERR_SUCCESS )
         {
-            if( RootHubDev.bType == USB_DEV_CLASS_HID ) // Further enumerate it if this device is a HID device
+            if( ( RootHubDev.bType == USB_DEV_CLASS_HID ) || ( RootHubDev.bType == DEF_DEV_TYPE_XBOX360 ) ) // Further enumerate HID/Xbox devices
             {
-                DUG_PRINTF("Root Device Is HID. ");
+                if( RootHubDev.bType == USB_DEV_CLASS_HID )
+                {
+                    DUG_PRINTF("Root Device Is HID. ");
+                    s = USBH_EnumHidDevice( RootHubDev.DeviceIndex, RootHubDev.bEp0MaxPks );
+                }
+                else
+                {
+                    DUG_PRINTF("Root Device Is Xbox360. ");
+                    s = USBH_EnumXbox360Device( RootHubDev.DeviceIndex, RootHubDev.bEp0MaxPks );
+                }
 
-                s = USBH_EnumHidDevice( RootHubDev.DeviceIndex, RootHubDev.bEp0MaxPks );
                 DUG_PRINTF( "Further Enum Result: " );
                 if( s == ERR_SUCCESS )
                 {
@@ -1550,6 +1772,9 @@ void USBH_MainDeal( void )
                     case USB_DEV_CLASS_HUB:
                         DUG_PRINTF("Hub. ");
                         break;
+                    case DEF_DEV_TYPE_XBOX360:
+                        DUG_PRINTF("Xbox360. ");
+                        break;
                     case DEF_DEV_TYPE_UNKNOWN:
                         DUG_PRINTF("Unknown. ");
                         break;
@@ -1577,12 +1802,12 @@ void USBH_MainDeal( void )
         GPIO_WriteBit(LED_GPIO_Port,LED_Pin, Bit_SET);
     }
 
-    /* Get the data of the HID device connected to the USB host port */
+    /* Get the data of the HID/Xbox device connected to the USB host port */
     if( RootHubDev.bStatus >= ROOT_DEV_SUCCESS )
     {
         index = RootHubDev.DeviceIndex;
 
-        if( RootHubDev.bType == USB_DEV_CLASS_HID )
+        if( ( RootHubDev.bType == USB_DEV_CLASS_HID ) || ( RootHubDev.bType == DEF_DEV_TYPE_XBOX360 ) )
         {
             for( intf_num = 0; intf_num < HostCtl[ index ].InterfaceNum; intf_num++ )
             {
@@ -1661,7 +1886,19 @@ void USBH_MainDeal( void )
                                     RootHubDev.DeviceIndex = DEF_USBFS_PORT_INDEX * DEF_ONE_USB_SUP_DEV_TOTAL;
 
                                     memset( &HostCtl[ index ].InterfaceNum, 0, sizeof( struct __HOST_CTL ) );
-                                    s = USBH_EnumHidDevice( index, RootHubDev.bEp0MaxPks );
+                                    if( RootHubDev.bType == USB_DEV_CLASS_HID )
+                                    {
+                                        s = USBH_EnumHidDevice( index, RootHubDev.bEp0MaxPks );
+                                    }
+                                    else if( RootHubDev.bType == DEF_DEV_TYPE_XBOX360 )
+                                    {
+                                        s = USBH_EnumXbox360Device( index, RootHubDev.bEp0MaxPks );
+                                    }
+                                    else
+                                    {
+                                        s = ERR_USB_UNSUPPORT;
+                                    }
+
                                     if( s == ERR_SUCCESS )
                                     {
                                         RootHubDev.bStatus = ROOT_DEV_SUCCESS; 
@@ -1755,13 +1992,21 @@ void USBH_MainDeal( void )
                                                        &RootHubDev.Device[ hub_port ].bType );
                            if( s == ERR_SUCCESS )
                            {
-                               if( RootHubDev.Device[ hub_port ].bType == USB_DEV_CLASS_HID )
+                               if( ( RootHubDev.Device[ hub_port ].bType == USB_DEV_CLASS_HID ) || ( RootHubDev.Device[ hub_port ].bType == DEF_DEV_TYPE_XBOX360 ) )
                                {
-                                   DUG_PRINTF( "HUB port%x device is HID! Further Enum:\r\n", hub_port );
+                                   if( RootHubDev.Device[ hub_port ].bType == USB_DEV_CLASS_HID )
+                                   {
+                                       DUG_PRINTF( "HUB port%x device is HID! Further Enum:\r\n", hub_port );
+                                       s = USBH_EnumHidDevice( RootHubDev.Device[ hub_port ].DeviceIndex, \
+                                                               RootHubDev.Device[ hub_port ].bEp0MaxPks );
+                                   }
+                                   else
+                                   {
+                                       DUG_PRINTF( "HUB port%x device is Xbox360! Further Enum:\r\n", hub_port );
+                                       s = USBH_EnumXbox360Device( RootHubDev.Device[ hub_port ].DeviceIndex, \
+                                                                   RootHubDev.Device[ hub_port ].bEp0MaxPks );
+                                   }
 
-                                   /* Perform HID class enumeration on the current device */
-                                   s = USBH_EnumHidDevice( RootHubDev.Device[ hub_port ].DeviceIndex, \
-                                                           RootHubDev.Device[ hub_port ].bEp0MaxPks );
                                    if( s == ERR_SUCCESS )
                                    {
                                         RootHubDev.Device[ hub_port ].bStatus = ROOT_DEV_SUCCESS;
@@ -1782,6 +2027,9 @@ void USBH_MainDeal( void )
                                            break;
                                        case USB_DEV_CLASS_HUB:
                                            DUG_PRINTF("printer!\r\n");
+                                           break;
+                                       case DEF_DEV_TYPE_XBOX360:
+                                           DUG_PRINTF("xbox360!\r\n");
                                            break;
                                        case DEF_DEV_TYPE_UNKNOWN:
                                            DUG_PRINTF("unknown!\r\n");
@@ -1808,7 +2056,7 @@ void USBH_MainDeal( void )
                {
                    index = RootHubDev.Device[ hub_port ].DeviceIndex;
 
-                   if( RootHubDev.Device[ hub_port ].bType == USB_DEV_CLASS_HID )
+                   if( ( RootHubDev.Device[ hub_port ].bType == USB_DEV_CLASS_HID ) || ( RootHubDev.Device[ hub_port ].bType == DEF_DEV_TYPE_XBOX360 ) )
                    {
                        for( intf_num = 0; intf_num < HostCtl[ index ].InterfaceNum; intf_num++ )
                        {

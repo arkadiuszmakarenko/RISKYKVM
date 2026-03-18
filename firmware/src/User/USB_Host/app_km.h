@@ -32,6 +32,7 @@ extern "C" {
 /* USB HID Device Interface Type */
 #define DEC_KEY                         0x01
 #define DEC_MOUSE                       0x02
+#define DEC_XBOX360                     0x03
 #define DEC_UNKNOW                      0xFF
 
 /* USB Keyboard Lighting Key */
@@ -54,6 +55,7 @@ extern uint8_t KM_AnalyzeConfigDesc( uint8_t index, uint8_t ep0_size );
 extern void KM_AnalyzeHidReportDesc( uint8_t index, uint8_t intf_num );
 extern uint8_t KM_DealHidReportDesc( uint8_t index, uint8_t ep0_size );
 extern uint8_t USBH_EnumHidDevice( uint8_t index, uint8_t ep0_size );
+extern uint8_t USBH_EnumXbox360Device( uint8_t index, uint8_t ep0_size );
 extern uint8_t HUB_AnalyzeConfigDesc( uint8_t index );
 extern uint8_t HUB_Port_PreEnum1( uint8_t hub_port, uint8_t *pbuf );
 extern uint8_t HUB_Port_PreEnum2( uint8_t hub_port, uint8_t *pbuf );
